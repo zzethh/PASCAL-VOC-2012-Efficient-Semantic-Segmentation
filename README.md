@@ -81,6 +81,37 @@ To quickly demonstrate the model's performance on the provided sample images:
 
 ---
 
+## Inference Details (Flexible Folders)
+
+The inference script (`infer.py`) is designed to be highly flexible as per the assignment requirements:
+
+- **Specify Test images**: Use the `--input_folder` argument to point to any directory containing your test images.
+- **Group Number Output**: Use the `--group_number` argument. The script automatically creates an output directory named `<group_number>_output` (e.g., `26_output`).
+- **Filename Convention**: Every output mask is automatically named `<original_name>_mask.png` within that folder.
+
+Example usage for arbitrary test sets:
+```bash
+python infer.py --input_folder /path/to/any/test_images --group_number 26 --model_path checkpoints/best_model.pth
+```
+
+## Docker Integration
+
+Docker is used here to provide a **reproducible and portable execution environment**. This ensures that the training and inference code runs exactly the same way regardless of the host OS, as long as NVIDIA drivers are present.
+
+### Building the Container
+```bash
+docker build -t zenith-voc-segmentation .
+```
+
+### Running Inference via Docker
+You can mount your local data folder and run the inference inside the container:
+```bash
+docker run --gpus all -v $(pwd)/my_images:/app/external_images zenith-voc-segmentation \
+    python infer.py --input_folder /app/external_images --group_number 26 --model_path checkpoints/best_model.pth
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -92,6 +123,6 @@ zenith/dl/
 ├── dataset.py        # VOC 2012 dataset + 80:20 split + augmentations
 ├── utils.py          # Dice metric, Dice loss, noise functions, VOC palette
 ├── requirements.txt  # Dependencies
-├── Dockerfile        # Container build
-└── README.md         # This file
+├── Dockerfile        # Container environment (reproducible build)
+└── README.md         # Project documentation & usage guide
 ```
