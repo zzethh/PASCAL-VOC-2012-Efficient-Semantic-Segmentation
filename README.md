@@ -1,128 +1,78 @@
-# PASCAL VOC 2012 – Efficient Semantic Segmentation
+# PASCAL VOC 2012 – Competition Maximised Semantic Segmentation
 
-Lightweight semantic segmentation on PASCAL VOC 2012 using **LR-ASPP with MobileNetV3-Large backbone**, optimised for the best **Dice Score ↔ FLOPs** trade-off.
+This repository is strictly optimised for the **PASCAL VOC 2012 Mini-Competition**. 
+The official ranking metric is `DICE / FLOPS (nano)` — equivalent to **Dice / GFLOPs**.
 
-## Model Architecture
+To heavily exploit this metric, this codebase uses **LR-ASPP + MobileNetV3-Large** (~0.7 GFLOPs). Because its FLOPs are 5× lower than standard architectures like DeepLabV3, it achieves a massive multiplier on the final leaderboard. Even with slightly lower absolute accuracy, the efficiency multiplier guarantees a top-tier rank.
 
-| Property | Value |
-|---|---|
-| Backbone | MobileNetV3-Large (ImageNet pretrained) |
-| Head | LR-ASPP (Lite Reduced Atrous Spatial Pyramid Pooling) |
-| Input | `(3, 300, 300)` RGB |
-| Output | `(300, 300)` mask, 21 classes `[0–20]` |
-| Params | ~3.2 M |
-| FLOPs | ~0.7 GFLOPs per image |
+To compensate for the lightweight architecture on the **hidden noisy test set**, this codebase employs:
+1. **Knowledge Distillation**: Transfers "dark knowledge" from a heavy DeepLabV3 teacher to the LR-ASPP student. *(Note: It is perfectly fine if the Teacher model is overfitted; it still provides robust soft class relationships and boundary smoothness for the Student to learn from).*
+2. **Early Stopping & High Weight Decay**: Prevents the light model from memorising noise.
+3. **Test-Time Augmentation (TTA) [OPTIONAL]**: Can be enabled (`--tta`) for maximizing pure accuracy, but is **disabled by default** to ensure the strict `DICE / FLOPs` ranking metric is not penalized by multiple forward passes.
 
-## GitHub Submission: Files to Upload
+---
 
-To submit this project, upload the following files from `/DATA/anikde/zenith/dl/`:
+## 🚀 The Winning Workflow: Exact Commands
 
-1.  **`dataset.py`**: Custom data loader using HuggingFace Hub (robust to original server outages).
-2.  **`model.py`**: LR-ASPP MobileNetV3 architecture definition.
-3.  **`train.py`**: Training engine (AMP, Cosine Annealing, combined loss).
-4.  **`evaluate.py`**: Standardized evaluation (Cleaning & Noisy Dice, FLOPs calculation).
-5.  **`infer.py`**: Prediction script for competition masks.
-6.  **`utils.py`**: Core metrics (Dice Score), Dice Loss, and Noise artifacts.
-7.  **`requirements.txt`**: Python dependencies.
-8.  **`Dockerfile`**: Containerized environment definition.
-9.  **`README.md`**: Project documentation (this file).
-10. **`checkpoints/best_model.pth`**: Trained model weights (required for the demo/evaluation).
+*Please run these commands in order from the `/DATA/anikde/zenith/dl/` directory after activating your environment.*
 
-## Workflow: How the Assignment Requirements were Achieved
-
-1.  **Model Selection**: Chose **LR-ASPP with MobileNetV3-Large** because it is specifically designed for high-efficiency segmentation. This ensures a high **DICE/FLOPs** ratio.
-2.  **Robust Data Loading**: Replaced the frequently-down official VOC mirrors with a reliable HuggingFace dataset loader. This ensures the project is reproducible anywhere.
-3.  **Data Split**: Implemented a deterministic 80/20 train/validation split of the VOC training data to ensure no overlap during training.
-4.  **Training for Robustness**: integrated random **Gaussian Noise, Salt-and-Pepper, Blur, and Compression** directly into the training loop. This forces the model to learn features invariant to common image corruptions.
-5.  **Combined Loss**: Used **CrossEntropy + Dice Loss**. CrossEntropy provides stable gradients, while Dice Loss directly optimizes the competition metric and handles class imbalance.
-6.  **Efficiency Optimization**: Enabled **AMP (Automatic Mixed Precision)** and high-speed data loading to minimize training time on the available GTX 1080 Ti GPUs.
-7.  **Standardized Inference**: Created a strict inference script that handles arbitrary resolution inputs and outputs naming-compliant PNG masks.
-
-## Quick Start: Exact Commands
-
-### 1. Setup & Environment
+### 0. Setup
 ```bash
 conda activate cifar
 pip install thop tqdm matplotlib
 ```
 
-### 2. Training (Standard Run)
-This command will train for 50 epochs and save the best weights to `checkpoints/best_model.pth`.
+### 1. Optional (But Recommended): Train the Teacher Model
+*Train a heavy, high-capacity model to learn the complex noise patterns. If you skip this, just run Step 2 without `--teacher_path`.*
 ```bash
-python train.py --epochs 50 --batch_size 16 --lr 3e-4 --noise_prob 0.5 --gpu 0 --use_hf
+# Trains DeepLabV3 (11M params, 3.5 GFLOPs)
+python train.py --epochs 50 --batch_size 16 --lr 3e-4 --noise_prob 0.5 --gpu 0 \
+    --model_type deeplabv3 --save_dir ./checkpoints_teacher
 ```
 
-### 3. Evaluation (Metrics & FLOPs)
-Reports Macro Dice, GFLOPs per sample, and the DICE/FLOPs ranking metric to 4 decimal places.
+### 2. Required: Train the Student Model (LR-ASPP)
+*This is your final submission model. It has only 0.7 GFLOPs. It will use Knowledge Distillation from the Teacher.*
 ```bash
-python evaluate.py --model_path checkpoints/best_model.pth --batch_size 16 --gpu 0 --use_hf --test_noise
+# Trains LR-ASPP with distillation and early stopping
+python train.py --epochs 60 --batch_size 16 --lr 3e-4 --noise_prob 0.5 --gpu 0 \
+    --model_type lraspp --save_dir ./checkpoints \
+    --teacher_path ./checkpoints_teacher/best_model.pth
+```
+*(If you skipped Step 1, simply remove the `--teacher_path ...` argument).*
+
+### 3. Verify Your Leaderboard Score
+*This reports the Macro Dice, GFLOPs per sample, and your final **Ranking Metric**.*
+```bash
+python evaluate.py --model_path checkpoints/best_model.pth --batch_size 16 --gpu 0 --test_noise --model_type lraspp
 ```
 
-### 4. Inference Demo (Group 26)
-Generates submission-ready masks for images in a folder.
+### 4. Evaluate on Instructor's 100-Sample Augmented Set
+*Compare this to the previous 0.9025 baseline.*
 ```bash
-python infer.py --input_folder sample_images --group_number 26 --model_path checkpoints/best_model.pth --save_colored
+python eval_sample.py --model_path checkpoints/best_model.pth --model_type lraspp
 ```
+
+### 5. Generate Inference Demo (Submission Output)
+*Generates the raw class-index PNGs required by the evaluator, recursively scanning any test folder.*
+```bash
+python infer.py --input_folder sample_images --group_number 26 \
+    --model_path checkpoints/best_model.pth --model_type lraspp --save_colored
+```
+
+*(Note: Test-Time Augmentation (TTA) is disabled by default in `infer.py` because running multiple forward passes doubles the effective inference runtime FLOPs, which could severely penalize your final ranking score. You can enable it with `--tta` if you only care about raw Dice score).*
 
 ---
 
-## How to Perform a Demo
+## GitHub Submission: Files to Upload
+To submit this project to the evaluator, upload **only** the following files from `/DATA/anikde/zenith/dl/`:
 
-To quickly demonstrate the model's performance on the provided sample images:
-
-1.  **Activate Env**: `conda activate cifar`
-2.  **Run Inference**:
-    ```bash
-    python infer.py --input_folder sample_images --group_number 26 --model_path checkpoints/best_model.pth --save_colored
-    ```
-3.  **Check Results**:
-    - `26_output/`: Contains the raw class-index masks (pixel values 0–20).
-    - `26_output_colored/`: Contains the visual palette masks.
-
----
-
-## Inference Details (Flexible Folders)
-
-The inference script (`infer.py`) is designed to be highly flexible as per the assignment requirements:
-
-- **Specify Test images**: Use the `--input_folder` argument to point to any directory containing your test images.
-- **Group Number Output**: Use the `--group_number` argument. The script automatically creates an output directory named `<group_number>_output` (e.g., `26_output`).
-- **Filename Convention**: Every output mask is automatically named `<original_name>_mask.png` within that folder.
-
-Example usage for arbitrary test sets:
-```bash
-python infer.py --input_folder /path/to/any/test_images --group_number 26 --model_path checkpoints/best_model.pth
-```
-
-## Docker Integration
-
-Docker is used here to provide a **reproducible and portable execution environment**. This ensures that the training and inference code runs exactly the same way regardless of the host OS, as long as NVIDIA drivers are present.
-
-### Building the Container
-```bash
-docker build -t zenith-voc-segmentation .
-```
-
-### Running Inference via Docker
-You can mount your local data folder and run the inference inside the container:
-```bash
-docker run --gpus all -v $(pwd)/my_images:/app/external_images zenith-voc-segmentation \
-    python infer.py --input_folder /app/external_images --group_number 26 --model_path checkpoints/best_model.pth
-```
-
----
-
-## Project Structure
-
-```
-zenith/dl/
-├── train.py          # Training loop (AMP, cosine LR, checkpointing)
-├── evaluate.py       # Dice score + FLOPs evaluation + robustness testing
-├── infer.py          # Folder-based inference → mask output
-├── model.py          # LR-ASPP MobileNetV3-Large wrapper
-├── dataset.py        # VOC 2012 dataset + 80:20 split + augmentations
-├── utils.py          # Dice metric, Dice loss, noise functions, VOC palette
-├── requirements.txt  # Dependencies
-├── Dockerfile        # Container environment (reproducible build)
-└── README.md         # Project documentation & usage guide
-```
+1.  `dataset.py`
+2.  `model.py`
+3.  `train.py`
+4.  `evaluate.py`
+5.  `infer.py`
+6.  `utils.py`
+7.  `requirements.txt`
+8.  `Dockerfile`
+9.  `README.md`
+10. `checkpoints/best_model.pth` *(Must be the LR-ASPP student model from Step 2!)*
