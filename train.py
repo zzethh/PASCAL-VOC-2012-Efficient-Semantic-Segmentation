@@ -36,9 +36,9 @@ def parse_args():
     p.add_argument("--patience", type=int, default=25)
     return p.parse_args()
 
-class BinaryDiceLoss(nn.Module):
-    def __init__(self, smooth=1.0):
-        super().__init__()
+class StructuralDiceLoss(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(StructuralDiceLoss, self).__init__()
         self.smooth = smooth
 
     def forward(self, logits, targets):
@@ -51,11 +51,12 @@ class BinaryDiceLoss(nn.Module):
         union = fg_prob.sum() + tgt_bin.sum()
         return 1.0 - (2.0 * intersection + self.smooth) / (union + self.smooth)
 
-class HybridCEBinaryDiceLoss(nn.Module):
-    def __init__(self, dice_weight=0.5):
-        super().__init__()
+class HybridCEStructuralDiceLoss(nn.Module):
+    def __init__(self, ce_weight=1.0, dice_weight=0.5, label_smoothing=0.1):
+        super(HybridCEStructuralDiceLoss, self).__init__()
+        self.ce_weight = ce_weight
         self.dice_weight = dice_weight
-        self.dice_loss = BinaryDiceLoss()
+        self.dice_loss = StructuralDiceLoss()
 
     def forward(self, logits, targets):
         ce = F.cross_entropy(logits, targets, ignore_index=IGNORE_INDEX, label_smoothing=0.1)
@@ -148,7 +149,7 @@ def main():
 
     model = SegmentationModel(num_classes=NUM_CLASSES, pretrained=True, model_type=args.model_type).to(device)
     flops, params = count_flops(model, input_size=(1, 3, args.img_size, args.img_size), device=device)
-    criterion = HybridCEBinaryDiceLoss(dice_weight=0.5).to(device)
+    criterion = HybridCEStructuralDiceLoss(dice_weight=0.5).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
     scaler = GradScaler()

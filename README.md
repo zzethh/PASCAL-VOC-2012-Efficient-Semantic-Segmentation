@@ -8,7 +8,7 @@ Our final architecture achieves a **Ranking Metric (Mean Dice / GFLOPs) of 18.57
 
 1. **Rule Compliance:** True end-to-end 21-class multi-class training. Inference output maps all 21 classes to a binary foreground/background mask without auxiliary pipelines.
 2. **Nano-Skip Micro-Decoder:** Two 1x1 convolutions fuse high-level semantic features (layer 12) with low-level edge features (layer 1) from MobileNetV3-Small.
-3. **Hybrid Loss:** CrossEntropy (label_smoothing=0.1) + 0.5 x Binary Dice Loss directly optimizes the evaluation metric.
+3. **Hybrid Loss:** CrossEntropy (label_smoothing=0.1) + 0.5 x Structural Dice Loss directly optimizes the evaluation metric.
 4. **Resolution Scaling:** Internal 192px processing resolution mapped to the required 300px output via bilinear interpolation inside the model wrapper.
 
 ---
@@ -105,32 +105,32 @@ We evaluated the model on completely unseen saliency datasets without any fine-t
 
 ## Phase Comparison (Full Evolution)
 
-| Phase        | Student Arch           | Teacher            | Key Changes                 | FLOPs (G) | Mean Dice (BG+FG) | Aug Sample | Robustness | **Ranking** |
-| :----------- | :--------------------- | :----------------- | :-------------------------- | :-------: | :---------------: | :--------: | :--------: | :---------: |
-| Teacher      | --                     | DeepLabV3 (MBv3-L) | Baseline                    |   3.506   |      0.7654       |   0.8610   |     --     |    0.218    |
-| Teacher      | --                     | DeepLabV3 (R101)   | Baseline                    |  34.406   |      ~0.7788      |  ~0.7292   |     --     |    0.023    |
-| Phase 1      | LR-ASPP (MBv3-L)       | --                 | No KD                       |   0.736   |       ~0.68       |   0.9025   |     --     |    ~0.92    |
-| Phase 3      | LR-ASPP (MBv3-L)       | DeepLabV3          | KD, noise=0.5               |   0.736   |      0.7836       |   0.8075   |     --     |    1.065    |
-| Phase 4      | LR-ASPP (MBv3-L)       | DeepLabV3          | noise=0.65, a=0.3           |   0.736   |      0.7755       |   0.8031   |   0.8134   |    1.054    |
-| **Phase 5**  | **LR-ASPP (MBv3-L)**   | **DeepLabV3**      | **Optimal noise=0.55**      | **0.736** |    **0.7927**     | **0.8207** | **0.8284** |  **1.078**  |
-| Phase 6      | LR-ASPP (MBv3-L)       | DeepLabV3          | Scale+Crop, weights         |   0.736   |      0.7762       |     --     |   0.7787   |    1.055    |
-| Phase 7      | LR-ASPP (MBv3-L)       | ResNet101          | Kaggle Leak Fix             |   0.402   |      0.7365       |   0.7292   |   0.7137   |    1.834    |
-| Phase 8      | LR-ASPP (MBv3-L)       | ResNet101          | OHEM, PolyLR                |   0.402   |      0.6722       |   0.6159   |   0.6452   |    1.673    |
-| Phase 9      | Fused LR-ASPP          | ResNet101          | Conv-BN Fusion              |   0.402   |      0.5805       |   0.4861   |     --     |    1.445    |
-| Phase 11     | LR-ASPP (MBv3-S)       | ResNet101          | Width Scaling               |   0.121   |      0.5889       |   0.5815   |   0.5696   |    4.869    |
-| Phase 12     | LR-ASPP (MBv3-S)       | ResNet101          | Long Bake 150ep             |   0.121   |      0.5841       |   0.5537   |   0.5651   |    4.830    |
-| Phase 13     | LR-ASPP (MBv3-L)       | ResNet101          | KD Clamp + Compound         |   0.402   |      0.7265       |   0.6999   |   0.7005   |    1.809    |
-| Phase 14     | LR-ASPP (MBv3-L)       | ResNet101          | KD Clamp Only               |   0.402   |      0.7328       |   0.6666   |   0.7041   |    1.825    |
-| **Phase 15** | **LR-ASPP (MBv3-L)**   | **DeepLabV3**      | **DeepLabV3 teacher**       | **0.402** |    **0.7874**     | **0.7775** | **0.7631** |  **1.960**  |
-| Phase 16     | LR-ASPP (MBv3-S)       | DeepLabV3          | MBv3-Small + DLv3           |   0.121   |      0.6055       |   0.5739   |   0.5801   |    5.007    |
-| Phase 17     | LR-ASPP (MBv3-S)       | DeepLabV3          | 192px internal              |   0.089   |      0.5616       |   0.5571   |   0.5414   |    6.312    |
-| Phase 18     | LR-ASPP (MBv3-S)       | DeepLabV3          | Retrain of Ph17             |   0.089   |      0.5571       |   0.5411   |   0.5394   |    6.259    |
-| Phase 19     | LR-ASPP (MBv3-S)       | None               | Binary Target Simplify      |   0.089   |      0.8469       |   0.8319   |   0.8359   |    9.515    |
-| Phase 20     | Nano-Skip (MBv3-S)     | None               | 1x1 Conv Fusion (2ch)       |   0.045   |      0.8421       |   0.8304   |   0.8334   |   18.742    |
-| Phase 23     | Nano-Skip (MBv3-S)     | None               | 21-Class Compliant          |   0.046   |      0.7987       |   0.7795   |   0.7841   |    17.35    |
-| _Phase 24_   | _Nano-Skip (MBv3-S)_   | _DeepLabV3_        | _KD (aborted)_              |  _0.046_  |      _~0.77_      |    _--_    |    _--_    |   _~16.7_   |
-| Phase 25     | Nano-Skip (MBv3-S)     | None               | Verification of Ph23        |   0.046   |      0.7987       |   0.7795   |   0.7839   |    17.35    |
-| **Phase 26** | **Nano-Skip (MBv3-S)** | **None**           | **CE+BinaryDice+LS, 150ep** | **0.046** |    **0.8546**     | **0.8483** | **0.8467** |  **18.57**  |
+| Phase        | Student Arch           | Teacher            | Key Changes                     | FLOPs (G) | Mean Dice (BG+FG) | Aug Sample | Robustness | **Ranking** |
+| :----------- | :--------------------- | :----------------- | :------------------------------ | :-------: | :---------------: | :--------: | :--------: | :---------: |
+| Teacher      | --                     | DeepLabV3 (MBv3-L) | Baseline                        |   3.506   |      0.7654       |   0.8610   |     --     |    0.218    |
+| Teacher      | --                     | DeepLabV3 (R101)   | Baseline                        |  34.406   |      ~0.7788      |  ~0.7292   |     --     |    0.023    |
+| Phase 1      | LR-ASPP (MBv3-L)       | --                 | No KD                           |   0.736   |       ~0.68       |   0.9025   |     --     |    ~0.92    |
+| Phase 3      | LR-ASPP (MBv3-L)       | DeepLabV3          | KD, noise=0.5                   |   0.736   |      0.7836       |   0.8075   |     --     |    1.065    |
+| Phase 4      | LR-ASPP (MBv3-L)       | DeepLabV3          | noise=0.65, a=0.3               |   0.736   |      0.7755       |   0.8031   |   0.8134   |    1.054    |
+| **Phase 5**  | **LR-ASPP (MBv3-L)**   | **DeepLabV3**      | **Optimal noise=0.55**          | **0.736** |    **0.7927**     | **0.8207** | **0.8284** |  **1.078**  |
+| Phase 6      | LR-ASPP (MBv3-L)       | DeepLabV3          | Scale+Crop, weights             |   0.736   |      0.7762       |     --     |   0.7787   |    1.055    |
+| Phase 7      | LR-ASPP (MBv3-L)       | ResNet101          | Kaggle Leak Fix                 |   0.402   |      0.7365       |   0.7292   |   0.7137   |    1.834    |
+| Phase 8      | LR-ASPP (MBv3-L)       | ResNet101          | OHEM, PolyLR                    |   0.402   |      0.6722       |   0.6159   |   0.6452   |    1.673    |
+| Phase 9      | Fused LR-ASPP          | ResNet101          | Conv-BN Fusion                  |   0.402   |      0.5805       |   0.4861   |     --     |    1.445    |
+| Phase 11     | LR-ASPP (MBv3-S)       | ResNet101          | Width Scaling                   |   0.121   |      0.5889       |   0.5815   |   0.5696   |    4.869    |
+| Phase 12     | LR-ASPP (MBv3-S)       | ResNet101          | Long Bake 150ep                 |   0.121   |      0.5841       |   0.5537   |   0.5651   |    4.830    |
+| Phase 13     | LR-ASPP (MBv3-L)       | ResNet101          | KD Clamp + Compound             |   0.402   |      0.7265       |   0.6999   |   0.7005   |    1.809    |
+| Phase 14     | LR-ASPP (MBv3-L)       | ResNet101          | KD Clamp Only                   |   0.402   |      0.7328       |   0.6666   |   0.7041   |    1.825    |
+| **Phase 15** | **LR-ASPP (MBv3-L)**   | **DeepLabV3**      | **DeepLabV3 teacher**           | **0.402** |    **0.7874**     | **0.7775** | **0.7631** |  **1.960**  |
+| Phase 16     | LR-ASPP (MBv3-S)       | DeepLabV3          | MBv3-Small + DLv3               |   0.121   |      0.6055       |   0.5739   |   0.5801   |    5.007    |
+| Phase 17     | LR-ASPP (MBv3-S)       | DeepLabV3          | 192px internal                  |   0.089   |      0.5616       |   0.5571   |   0.5414   |    6.312    |
+| Phase 18     | LR-ASPP (MBv3-S)       | DeepLabV3          | Retrain of Ph17                 |   0.089   |      0.5571       |   0.5411   |   0.5394   |    6.259    |
+| Phase 19     | LR-ASPP (MBv3-S)       | None               | Binary Target Simplify          |   0.089   |      0.8469       |   0.8319   |   0.8359   |    9.515    |
+| Phase 20     | Nano-Skip (MBv3-S)     | None               | 1x1 Conv Fusion (2ch)           |   0.045   |      0.8421       |   0.8304   |   0.8334   |   18.742    |
+| Phase 23     | Nano-Skip (MBv3-S)     | None               | 21-Class Compliant              |   0.046   |      0.7987       |   0.7795   |   0.7841   |    17.35    |
+| _Phase 24_   | _Nano-Skip (MBv3-S)_   | _DeepLabV3_        | _KD (aborted)_                  |  _0.046_  |      _~0.77_      |    _--_    |    _--_    |   _~16.7_   |
+| Phase 25     | Nano-Skip (MBv3-S)     | None               | Verification of Ph23            |   0.046   |      0.7987       |   0.7795   |   0.7839   |    17.35    |
+| **Phase 26** | **Nano-Skip (MBv3-S)** | **None**           | **CE+StructuralDice+LS, 150ep** | **0.046** |    **0.8546**     | **0.8483** | **0.8467** |  **18.57**  |
 
 > **Ranking Metric** = Mean Dice / GFLOPs. Higher is better.
 > **Current Best Legal Submission: Phase 26** (18.57 ranking, 21-class compliant).
@@ -143,7 +143,7 @@ We evaluated the model on completely unseen saliency datasets without any fine-t
 | File                         | Purpose                                                                      |
 | :--------------------------- | :--------------------------------------------------------------------------- |
 | `inference.py`               | Generates binary masks for test images (accepts `--in_dir` and `--out_dir`)  |
-| `train.py`                   | Training script with HybridCEBinaryDiceLoss, CosineAnnealingLR, AMP          |
+| `train.py`                   | Training script with HybridCEStructuralDiceLoss, CosineAnnealingLR, AMP      |
 | `dataset.py`                 | PASCAL VOC 2012 loader via Kaggle with strict train/val separation           |
 | `model.py`                   | Nano-Skip Micro-Decoder architecture (MobileNetV3-Small backbone)            |
 | `utils.py`                   | Dice score, augmentations, loss definitions                                  |
